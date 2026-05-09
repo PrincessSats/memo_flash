@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, Trash2, BookOpen, Clock, Flame, TrendingUp } from 'lucide-react';
+import { Upload, Trash2, BookOpen, Clock, Flame } from 'lucide-react';
 import type { Deck } from '../types';
 import { parseCSV } from '../parsers/csvParser';
 import { parseApkg } from '../parsers/apkgParser';

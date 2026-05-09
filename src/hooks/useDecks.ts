@@ -12,26 +12,47 @@ export function useDecks() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    setDecks(storage.loadDecks());
-    setCards(storage.loadCards());
-    setStates(storage.loadStates());
-    setLogs(storage.loadLogs());
-    setLoaded(true);
+    async function loadData() {
+      const [d, c, s, l] = await Promise.all([
+        storage.loadDecks(),
+        storage.loadCards(),
+        storage.loadStates(),
+        storage.loadLogs(),
+      ]);
+      setDecks(d);
+      setCards(c);
+      setStates(s);
+      setLogs(l);
+      setLoaded(true);
+    }
+    loadData();
   }, []);
 
-  const persist = useCallback((next: {
+  const persist = useCallback(async (next: {
     decks?: Deck[];
     cards?: Card[];
     states?: CardState[];
     logs?: ReviewLog[];
   }) => {
-    if (next.decks) { setDecks(next.decks); storage.saveDecks(next.decks); }
-    if (next.cards) { setCards(next.cards); storage.saveCards(next.cards); }
-    if (next.states) { setStates(next.states); storage.saveStates(next.states); }
-    if (next.logs) { setLogs(next.logs); storage.saveLogs(next.logs); }
+    if (next.decks) { 
+      setDecks(next.decks); 
+      await storage.saveDecks(next.decks); 
+    }
+    if (next.cards) { 
+      setCards(next.cards); 
+      await storage.saveCards(next.cards); 
+    }
+    if (next.states) { 
+      setStates(next.states); 
+      await storage.saveStates(next.states); 
+    }
+    if (next.logs) { 
+      setLogs(next.logs); 
+      await storage.saveLogs(next.logs); 
+    }
   }, []);
 
-  const createDeck = useCallback((name: string, description?: string) => {
+  const createDeck = useCallback(async (name: string, description?: string) => {
     const deck: Deck = {
       id: v4(),
       name,
@@ -41,16 +62,16 @@ export function useDecks() {
       dueCount: 0,
     };
     const next = [...decks, deck];
-    persist({ decks: next });
+    await persist({ decks: next });
     return deck;
   }, [decks, persist]);
 
-  const importCards = useCallback((deckId: string, newCards: Card[]) => {
+  const importCards = useCallback(async (deckId: string, newCards: Card[]) => {
     const withDeck = newCards.map((c) => ({ ...c, deckId }));
-    const nextCards = storage.addCards(withDeck);
+    const nextCards = await storage.addCards(withDeck);
     const newStates = withDeck.map((c) => initCardState(c.id));
     const nextStates = [...states, ...newStates];
-    storage.saveStates(nextStates);
+    await storage.saveStates(nextStates);
 
     const deck = decks.find((d) => d.id === deckId);
     if (deck) {
@@ -59,9 +80,9 @@ export function useDecks() {
           ? { ...d, cardCount: nextCards.filter((c) => c.deckId === deckId).length }
           : d
       );
-      persist({ decks: updated, cards: nextCards, states: nextStates });
+      await persist({ decks: updated, cards: nextCards, states: nextStates });
     } else {
-      persist({ cards: nextCards, states: nextStates });
+      await persist({ cards: nextCards, states: nextStates });
     }
   }, [decks, states, persist]);
 
@@ -74,24 +95,24 @@ export function useDecks() {
     return { dueCount: due.length, ...today };
   }, [states, cards, logs]);
 
-  const logReview = useCallback((log: ReviewLog, nextState: CardState) => {
+  const logReview = useCallback(async (log: ReviewLog, nextState: CardState) => {
     const nextLogs = [...logs, log];
     const idx = states.findIndex((s) => s.cardId === nextState.cardId);
     const nextStates = idx >= 0
       ? states.map((s) => (s.cardId === nextState.cardId ? nextState : s))
       : [...states, nextState];
-    storage.addLog(log);
-    storage.saveStates(nextStates);
+    await storage.addLog(log);
+    await storage.saveStates(nextStates);
     setLogs(nextLogs);
     setStates(nextStates);
   }, [logs, states]);
 
-  const deleteDeck = useCallback((deckId: string) => {
+  const deleteDeck = useCallback(async (deckId: string) => {
     const nextDecks = decks.filter((d) => d.id !== deckId);
     const nextCards = cards.filter((c) => c.deckId !== deckId);
     const nextStates = states.filter((s) => !nextCards.some((c) => c.id === s.cardId));
     const nextLogs = logs.filter((l) => l.deckId !== deckId);
-    persist({ decks: nextDecks, cards: nextCards, states: nextStates, logs: nextLogs });
+    await persist({ decks: nextDecks, cards: nextCards, states: nextStates, logs: nextLogs });
   }, [decks, cards, states, logs, persist]);
 
   return { decks, cards, states, logs, loaded, createDeck, importCards, getDeckStats, logReview, deleteDeck };

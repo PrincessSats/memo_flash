@@ -1,8 +1,6 @@
 import { supabase } from './supabaseClient';
 import type { Card, CardState, Deck, ReviewLog } from '../types';
 
-const SETTINGS_TABLE = 'settings';
-
 async function getUserId() {
   const { data } = await supabase.auth.getUser();
   return data.user?.id;

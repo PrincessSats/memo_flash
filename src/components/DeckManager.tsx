@@ -8,7 +8,7 @@ import { parseApkg } from '../parsers/apkgParser';
 interface Props {
   decks: Deck[];
   getDeckStats: (deckId: string) => { dueCount: number; newLearned: number; reviews: number; correct: number; streak: number };
-  createDeck: (name: string) => void;
+  createDeck: (name: string, description?: string) => Promise<Deck>;
   importCards: (deckId: string, newCards: any[]) => void;
   deleteDeck: (deckId: string) => void;
   onStudy: (deckId: string) => void;
@@ -16,24 +16,38 @@ interface Props {
 
 export default function DeckManager({ decks, getDeckStats, createDeck, importCards, deleteDeck, onStudy }: Props) {
   const [newName, setNewName] = useState('');
-  const [activeDeck, setActiveDeck] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = useCallback(async (file: File, deckId: string) => {
+  const handleCreate = useCallback(async () => {
+    if (newName.trim()) {
+      await createDeck(newName.trim());
+      setNewName('');
+    }
+  }, [newName, createDeck]);
+
+  const handleFile = useCallback(async (file: File) => {
+    setImporting(true);
     try {
+      const deckName = file.name.replace(/\.(csv|apkg)$/i, '');
+      const deck = await createDeck(deckName);
+
       if (file.name.endsWith('.csv')) {
         const text = await file.text();
-        const cards = parseCSV(text, deckId);
-        importCards(deckId, cards);
+        const cards = parseCSV(text, deck.id);
+        importCards(deck.id, cards);
       } else if (file.name.endsWith('.apkg')) {
         const parsed = await parseApkg(file);
-        const cards = parsed.cards.map((c, i) => ({ ...c, id: `${deckId}-apkg-${i}-${Date.now()}`, deckId }));
-        importCards(deckId, cards);
+        const cards = parsed.cards.map((c, i) => ({ ...c, id: `${deck.id}-apkg-${i}-${Date.now()}`, deckId: deck.id }));
+        importCards(deck.id, cards);
       }
     } catch (e) {
       alert('Import failed: ' + (e as Error).message);
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  }, [importCards]);
+  }, [createDeck, importCards]);
 
   return (
     <div className="deck-manager">
@@ -44,8 +58,7 @@ export default function DeckManager({ decks, getDeckStats, createDeck, importCar
         hidden
         onChange={e => {
           const file = e.target.files?.[0];
-          if (file && activeDeck) handleFile(file, activeDeck);
-          e.target.value = '';
+          if (file) handleFile(file);
         }}
       />
 
@@ -58,14 +71,28 @@ export default function DeckManager({ decks, getDeckStats, createDeck, importCar
         <input
           value={newName}
           onChange={e => setNewName(e.target.value)}
-          placeholder="New deck name..."
+          placeholder="Deck name..."
           className="deck-input"
-          onKeyDown={e => { if (e.key === 'Enter' && newName.trim()) { createDeck(newName.trim()); setNewName(''); } }}
+          onKeyDown={e => { if (e.key === 'Enter') handleCreate(); }}
         />
-        <button className="btn-primary" onClick={() => { if (newName.trim()) { createDeck(newName.trim()); setNewName(''); } }}>Create</button>
+        <button className="btn-primary" onClick={handleCreate}>Create</button>
+        <button
+          className="btn-primary"
+          style={{ background: 'linear-gradient(135deg, #5fd98f, #34d399)', boxShadow: '0 8px 24px rgba(52,211,153,0.3)' }}
+          onClick={() => fileInputRef.current?.click()}
+          disabled={importing}
+        >
+          <Upload size={15} style={{ marginRight: 5, verticalAlign: 'middle' }} />
+          {importing ? '...' : 'Import'}
+        </button>
       </div>
 
       <div className="deck-list">
+        {decks.length === 0 && (
+          <p style={{ textAlign: 'center', color: 'var(--text-dim)', padding: '2rem 0', fontSize: 14 }}>
+            No decks. Create one or import CSV/APKG file.
+          </p>
+        )}
         {decks.map((deck, i) => {
           const stats = getDeckStats(deck.id);
           return (
@@ -78,14 +105,9 @@ export default function DeckManager({ decks, getDeckStats, createDeck, importCar
             >
               <div className="deck-card-top">
                 <div className="deck-title">{deck.name}</div>
-                <div className="deck-actions">
-                  <button className="btn-ghost icon-only" title="Import CSV/APKG" onClick={() => { setActiveDeck(deck.id); fileInputRef.current?.click(); }}>
-                    <Upload size={16} />
-                  </button>
-                  <button className="btn-ghost icon-only danger" onClick={() => deleteDeck(deck.id)} title="Delete deck">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
+                <button className="btn-ghost icon-only danger" onClick={() => deleteDeck(deck.id)} title="Delete deck">
+                  <Trash2 size={16} />
+                </button>
               </div>
 
               <div className="deck-stats">

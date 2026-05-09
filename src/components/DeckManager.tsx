@@ -16,8 +16,8 @@ interface Props {
 
 export default function DeckManager({ decks, getDeckStats, createDeck, importCards, deleteDeck, onStudy }: Props) {
   const [newName, setNewName] = useState('');
-  const csvInputRef = useRef<HTMLInputElement>(null);
-  const apkgInputRef = useRef<HTMLInputElement>(null);
+  const [activeDeck, setActiveDeck] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(async (file: File, deckId: string) => {
     try {
@@ -35,9 +35,20 @@ export default function DeckManager({ decks, getDeckStats, createDeck, importCar
     }
   }, [importCards]);
 
-
   return (
     <div className="deck-manager">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,.apkg"
+        hidden
+        onChange={e => {
+          const file = e.target.files?.[0];
+          if (file && activeDeck) handleFile(file, activeDeck);
+          e.target.value = '';
+        }}
+      />
+
       <div className="deck-header">
         <h1>Memo</h1>
         <p className="deck-sub">Spaced repetition, made alive.</p>
@@ -68,31 +79,8 @@ export default function DeckManager({ decks, getDeckStats, createDeck, importCar
               <div className="deck-card-top">
                 <div className="deck-title">{deck.name}</div>
                 <div className="deck-actions">
-                  <button className="btn-ghost icon-only" onClick={() => apkgInputRef.current?.click()} title="Import .apkg">
+                  <button className="btn-ghost icon-only" title="Import CSV/APKG" onClick={() => { setActiveDeck(deck.id); fileInputRef.current?.click(); }}>
                     <Upload size={16} />
-                    <input
-                      ref={apkgInputRef}
-                      type="file"
-                      accept=".apkg"
-                      hidden
-                      onChange={e => {
-                        const file = e.target.files?.[0];
-                        if (file) handleFile(file, deck.id);
-                      }}
-                    />
-                  </button>
-                  <button className="btn-ghost icon-only" onClick={() => csvInputRef.current?.click()} title="Import .csv">
-                    <TrendingUp size={16} />
-                    <input
-                      ref={csvInputRef}
-                      type="file"
-                      accept=".csv"
-                      hidden
-                      onChange={e => {
-                        const file = e.target.files?.[0];
-                        if (file) handleFile(file, deck.id);
-                      }}
-                    />
                   </button>
                   <button className="btn-ghost icon-only danger" onClick={() => deleteDeck(deck.id)} title="Delete deck">
                     <Trash2 size={16} />

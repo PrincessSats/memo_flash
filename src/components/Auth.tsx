@@ -27,12 +27,12 @@ export default function Auth() {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      minHeight: '100vh', background: '#0f0f0f', color: '#eee',
-      fontFamily: 'sans-serif'
+      minHeight: '100dvh', background: 'var(--bg)', color: '#eee',
+      fontFamily: 'sans-serif', padding: '1rem'
     }}>
       <form onSubmit={handleSubmit} style={{
-        background: '#1a1a1a', padding: '2rem', borderRadius: 12,
-        width: 320, display: 'flex', flexDirection: 'column', gap: 12
+        background: '#1a1a1a', padding: '1.5rem', borderRadius: 12,
+        width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 12
       }}>
         <h2 style={{ margin: 0, textAlign: 'center' }}>
           {mode === 'login' ? 'Sign In' : 'Create Account'}

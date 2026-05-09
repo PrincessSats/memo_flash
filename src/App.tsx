@@ -69,7 +69,9 @@ function AppContent({ user }: { user: User }) {
     <div>
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '1rem', background: '#111',
+        padding: '0.75rem 1rem', background: 'rgba(13,13,18,0.92)',
+        backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+        borderBottom: '1px solid rgba(255,255,255,0.06)'
       }}>
         <span style={{ color: '#aaa', fontSize: 13 }}>{user.email}</span>
         <button onClick={handleSignOut} style={{

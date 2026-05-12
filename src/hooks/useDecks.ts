@@ -3,6 +3,7 @@ import type { Deck, Card, CardState, ReviewLog } from '../types';
 import * as storage from '../storage/localStorage';
 import { initCardState, getDueCards, getTodayStats } from '../engine/fsrs';
 import { v4 } from '../utils/uuid';
+import { expandCardsToTaskVariants } from '../utils/studyTasks';
 
 export function useDecks() {
   const [decks, setDecks] = useState<Deck[]>([]);
@@ -19,9 +20,20 @@ export function useDecks() {
         storage.loadStates(),
         storage.loadLogs(),
       ]);
-      setDecks(d);
-      setCards(c);
-      setStates(s);
+      const expandedCards = expandCardsToTaskVariants(c);
+      const addedCards = expandedCards.filter((card) => !c.some((existing) => existing.id === card.id));
+      const addedStates = addedCards.map((card) => initCardState(card.id));
+      if (addedCards.length > 0) {
+        await storage.saveCards(addedCards);
+        await storage.saveStates(addedStates);
+      }
+
+      const expandedStates = [...s, ...addedStates];
+      const cardCounts = new Map<string, number>();
+      expandedCards.forEach((card) => cardCounts.set(card.deckId, (cardCounts.get(card.deckId) ?? 0) + 1));
+      setDecks(d.map((deck) => ({ ...deck, cardCount: cardCounts.get(deck.id) ?? 0 })));
+      setCards(expandedCards);
+      setStates(expandedStates);
       setLogs(l);
       setLoaded(true);
     }
@@ -67,24 +79,26 @@ export function useDecks() {
   }, [decks, persist]);
 
   const importCards = useCallback(async (deckId: string, newCards: Card[]) => {
-    const withDeck = newCards.map((c) => ({ ...c, deckId }));
+    const withDeck = expandCardsToTaskVariants(newCards.map((c) => ({ ...c, deckId })));
     const nextCards = await storage.addCards(withDeck);
     const newStates = withDeck.map((c) => initCardState(c.id));
-    const nextStates = [...states, ...newStates];
-    await storage.saveStates(nextStates);
+    if (newStates.length > 0) {
+      await storage.saveStates(newStates);
+    }
 
-    const deck = decks.find((d) => d.id === deckId);
-    if (deck) {
-      const updated = decks.map((d) =>
+    setCards(nextCards);
+    setStates((prev) => {
+      const existing = new Set(prev.map((s) => s.cardId));
+      return [...prev, ...newStates.filter((s) => !existing.has(s.cardId))];
+    });
+    setDecks((prev) =>
+      prev.map((d) =>
         d.id === deckId
           ? { ...d, cardCount: nextCards.filter((c) => c.deckId === deckId).length }
           : d
-      );
-      await persist({ decks: updated, cards: nextCards, states: nextStates });
-    } else {
-      await persist({ cards: nextCards, states: nextStates });
-    }
-  }, [decks, states, persist]);
+      )
+    );
+  }, []);
 
   const getDeckStats = useCallback((deckId: string) => {
     const deckCards = cards.filter((c) => c.deckId === deckId);
@@ -98,16 +112,19 @@ export function useDecks() {
   }, [states, cards, logs]);
 
   const logReview = useCallback(async (log: ReviewLog, nextState: CardState) => {
-    const nextLogs = [...logs, log];
-    const idx = states.findIndex((s) => s.cardId === nextState.cardId);
-    const nextStates = idx >= 0
-      ? states.map((s) => (s.cardId === nextState.cardId ? nextState : s))
-      : [...states, nextState];
-    await storage.addLog(log);
-    await storage.saveStates(nextStates);
-    setLogs(nextLogs);
-    setStates(nextStates);
-  }, [logs, states]);
+    setLogs((prev) => [...prev, log]);
+    setStates((prev) => {
+      const idx = prev.findIndex((s) => s.cardId === nextState.cardId);
+      return idx >= 0
+        ? prev.map((s) => (s.cardId === nextState.cardId ? nextState : s))
+        : [...prev, nextState];
+    });
+
+    await Promise.all([
+      storage.addLog(log),
+      storage.updateState(nextState),
+    ]);
+  }, []);
 
   const deleteDeck = useCallback(async (deckId: string) => {
     try {

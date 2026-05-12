@@ -1,11 +1,12 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Card, CardState, ReviewLog } from '../types';
 import { streakToLabel } from '../types';
 import { scheduleReview } from '../engine/fsrs';
 import { matchesRomaji } from '../utils/romaji';
+import { getCardQuizType, type StudyQuizType } from '../utils/studyTasks';
 
-type QuizType = 'meaning-mc' | 'reading-mc' | 'meaning-type' | 'reading-type';
+type QuizType = StudyQuizType;
 
 interface Props {
   deckCards: Card[];
@@ -25,16 +26,6 @@ function hashText(value: string) {
   return hash >>> 0;
 }
 
-function computeQuizType(streak: number, hasFurigana: boolean): QuizType {
-  if (!hasFurigana) return streak >= 2 ? 'meaning-type' : 'meaning-mc';
-  switch (streak % 4) {
-    case 0: return 'meaning-mc';
-    case 1: return 'reading-mc';
-    case 2: return 'meaning-type';
-    default: return 'reading-type';
-  }
-}
-
 function quizLabel(qt: QuizType): string {
   switch (qt) {
     case 'meaning-mc':   return '🅰️ Meaning';
@@ -50,7 +41,6 @@ export default function StudySession({ deckCards, cardStates, deckId, sessionSiz
   const [showAnswer, setShowAnswer] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState('');
   const [shake, setShake] = useState(false);
-  const [flash, setFlash] = useState<{ color: 'green' | 'red'; id: number } | null>(null);
   const [reviewedCardIds, setReviewedCardIds] = useState<Set<string>>(() => new Set());
   const [passedCardIds, setPassedCardIds] = useState<Set<string>>(() => new Set());
   const [pendingResult, setPendingResult] = useState<'correct' | 'incorrect' | null>(null);
@@ -59,13 +49,7 @@ export default function StudySession({ deckCards, cardStates, deckId, sessionSiz
     cardStates.forEach((s) => m.set(s.cardId, s.streak));
     return m;
   });
-  const flashTimeoutRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (flashTimeoutRef.current !== null) window.clearTimeout(flashTimeoutRef.current);
-    };
-  }, []);
+  const [newStreakDot, setNewStreakDot] = useState<{ cardId: string; index: number } | null>(null);
 
   const fullQueue = useMemo(() => {
     const map = new Map(frozenCardStates.map((s) => [s.cardId, s]));
@@ -110,12 +94,16 @@ export default function StudySession({ deckCards, cardStates, deckId, sessionSiz
   const liveStreak = currentCard
     ? (sessionStreaks.get(currentCard.id) ?? currentState?.streak ?? 0)
     : 0;
+  const displayedStreak = pendingResult === 'correct'
+    ? Math.min(liveStreak + 1, 5)
+    : pendingResult === 'incorrect'
+      ? 0
+      : Math.min(liveStreak, 5);
 
   const quizType = useMemo<QuizType>(() => {
     if (!currentState || !currentCard) return 'meaning-mc';
-    const streak = sessionStreaks.get(currentCard.id) ?? currentState.streak;
-    return computeQuizType(streak, !!(currentCard.furigana));
-  }, [currentState, currentCard, sessionStreaks]);
+    return getCardQuizType(currentCard);
+  }, [currentState, currentCard]);
 
   const isTyping = quizType === 'meaning-type' || quizType === 'reading-type';
 
@@ -134,32 +122,30 @@ export default function StudySession({ deckCards, cardStates, deckId, sessionSiz
     );
     const getVal = (c: Card) =>
       quizType === 'reading-mc' ? (c.furigana || c.back) : c.back;
-    const choices = shuffled.slice(0, 3).map(getVal);
+    const choices: string[] = [];
+    const seen = new Set([correctVal]);
+    for (const sibling of shuffled) {
+      const value = getVal(sibling);
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      choices.push(value);
+      if (choices.length === 3) break;
+    }
     choices.push(correctVal);
     return choices.sort(
       (a, b) => hashText(`${currentCard.id}:choice:${a}`) - hashText(`${currentCard.id}:choice:${b}`)
     );
   }, [deckCards, currentCard, quizType, isTyping, correctVal]);
 
-  const triggerFlash = useCallback((result: 'correct' | 'incorrect') => {
-    const flashId = Date.now();
-    setFlash({ color: result === 'correct' ? 'green' : 'red', id: flashId });
-    if (result === 'incorrect') {
+  const handleAnswer = useCallback((autoResult: 'correct' | 'incorrect') => {
+    if (!currentCard || !currentState || pendingResult !== null) return;
+    if (autoResult === 'incorrect') {
       setShake(true);
       setTimeout(() => setShake(false), 400);
     }
-    if (flashTimeoutRef.current !== null) window.clearTimeout(flashTimeoutRef.current);
-    flashTimeoutRef.current = window.setTimeout(() => {
-      setFlash((cur) => (cur?.id === flashId ? null : cur));
-    }, 600);
-  }, []);
-
-  const handleAnswer = useCallback((autoResult: 'correct' | 'incorrect') => {
-    if (!currentCard || !currentState || pendingResult !== null) return;
-    triggerFlash(autoResult);
     setShowAnswer(true);
     setPendingResult(autoResult);
-  }, [currentCard, currentState, pendingResult, triggerFlash]);
+  }, [currentCard, currentState, pendingResult]);
 
   const handleConfirm = useCallback((result: 'correct' | 'incorrect') => {
     if (!currentCard || !currentState) return;
@@ -189,6 +175,11 @@ export default function StudySession({ deckCards, cardStates, deckId, sessionSiz
       next.set(currentCard.id, nextState.streak);
       return next;
     });
+    if (result === 'correct' && nextState.streak > 0) {
+      setNewStreakDot({ cardId: currentCard.id, index: nextState.streak - 1 });
+    } else {
+      setNewStreakDot(null);
+    }
     setReviewedCardIds((prev) => {
       const next = new Set(prev);
       next.add(currentCard.id);
@@ -205,11 +196,9 @@ export default function StudySession({ deckCards, cardStates, deckId, sessionSiz
   }, [currentCard, currentState, deckId, onLog]);
 
   const handlePass = useCallback(() => {
-    if (!currentCard || pendingResult !== null) return;
-    setPassedCardIds((prev) => new Set([...prev, currentCard.id]));
-    setShowAnswer(false);
-    setTypedAnswer('');
-  }, [currentCard, pendingResult]);
+    if (!currentCard || !currentState || pendingResult !== null) return;
+    handleConfirm('incorrect');
+  }, [currentCard, currentState, pendingResult, handleConfirm]);
 
   const handleTypedSubmit = useCallback(() => {
     if (!currentCard || pendingResult !== null) return;
@@ -227,37 +216,36 @@ export default function StudySession({ deckCards, cardStates, deckId, sessionSiz
   const totalSessionCards = fullQueue.length;
   const progress = totalSessionCards > 0 ? (reviewedCardIds.size / totalSessionCards) * 100 : 100;
 
-  const flashOverlay = flash ? (
-    <div key={flash.id} className={`screen-flash flash-${flash.color}`} />
-  ) : null;
-
   if (!currentCard) {
     return (
-      <>
-        {flashOverlay}
-        <div className="study-done">
-          <motion.div
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="glass"
-          >
-            <h2>All caught up!</h2>
-            <p>No cards due right now.</p>
-            <button className="btn-primary" onClick={onBack}>Back to Decks</button>
-          </motion.div>
-        </div>
-      </>
+      <div className="study-done">
+        <motion.div
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="glass"
+        >
+          <h2>All caught up!</h2>
+          <p>No cards due right now.</p>
+          <button className="btn-primary" onClick={onBack}>Back to Decks</button>
+        </motion.div>
+      </div>
     );
   }
 
   const streakColors = ['#ff4444', '#ff8844', '#ffcc44', '#88cc44', '#44cc44'];
   const streakDots = Array.from({ length: 5 }).map((_, i) => {
-    const lit = i < liveStreak;
+    const lit = i < displayedStreak;
     const color = lit ? streakColors[i] : 'rgba(255,255,255,0.15)';
+    const justLit = (
+      pendingResult === 'correct' && displayedStreak > 0 && i === displayedStreak - 1
+    ) || (
+      newStreakDot?.cardId === currentCard?.id && Math.min(newStreakDot.index, 4) === i
+    );
     return (
       <span
         key={i}
         className="streak-dot"
+        data-just-lit={justLit}
         style={{ background: color, boxShadow: lit ? `0 0 10px ${color}66` : 'none' }}
       />
     );
@@ -265,7 +253,6 @@ export default function StudySession({ deckCards, cardStates, deckId, sessionSiz
 
   return (
     <>
-      {flashOverlay}
       <div className={`study-wrap ${shake ? 'shake' : ''}`}>
         <div className="study-top">
           <button className="btn-ghost" onClick={onBack}>End</button>

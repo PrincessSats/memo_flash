@@ -87,12 +87,14 @@ export function useDecks() {
   }, [decks, states, persist]);
 
   const getDeckStats = useCallback((deckId: string) => {
-    const due = getDueCards(states.filter((s) => {
-      const card = cards.find((c) => c.id === s.cardId);
-      return card && card.deckId === deckId;
-    }));
+    const deckCards = cards.filter((c) => c.deckId === deckId);
+    const deckCardIds = new Set(deckCards.map((c) => c.id));
+    const deckStates = states.filter((s) => deckCardIds.has(s.cardId));
+    const statedIds = new Set(deckStates.map((s) => s.cardId));
+    const unstatedCount = deckCards.filter((c) => !statedIds.has(c.id)).length;
+    const due = getDueCards(deckStates);
     const today = getTodayStats(logs, deckId);
-    return { dueCount: due.length, ...today };
+    return { dueCount: due.length + unstatedCount, cardCount: deckCards.length, ...today };
   }, [states, cards, logs]);
 
   const logReview = useCallback(async (log: ReviewLog, nextState: CardState) => {
@@ -108,12 +110,23 @@ export function useDecks() {
   }, [logs, states]);
 
   const deleteDeck = useCallback(async (deckId: string) => {
+    try {
+      await storage.deleteDeckStorage(deckId);
+    } catch (e) {
+      console.error('Delete failed:', e);
+      alert('Failed to delete deck: ' + (e as Error).message);
+      return;
+    }
     const nextDecks = decks.filter((d) => d.id !== deckId);
     const nextCards = cards.filter((c) => c.deckId !== deckId);
-    const nextStates = states.filter((s) => !nextCards.some((c) => c.id === s.cardId));
+    const deckCardIds = new Set(nextCards.map((c) => c.id));
+    const nextStates = states.filter((s) => deckCardIds.has(s.cardId));
     const nextLogs = logs.filter((l) => l.deckId !== deckId);
-    await persist({ decks: nextDecks, cards: nextCards, states: nextStates, logs: nextLogs });
-  }, [decks, cards, states, logs, persist]);
+    setDecks(nextDecks);
+    setCards(nextCards);
+    setStates(nextStates);
+    setLogs(nextLogs);
+  }, [decks, cards, states, logs]);
 
   return { decks, cards, states, logs, loaded, createDeck, importCards, getDeckStats, logReview, deleteDeck };
 }

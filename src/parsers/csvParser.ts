@@ -1,4 +1,5 @@
 import type { Card } from '../types';
+import { v4 } from '../utils/uuid';
 
 export function parseCSV(content: string, deckId: string): Card[] {
   const lines = content.trim().split('\n');
@@ -15,7 +16,7 @@ export function parseCSV(content: string, deckId: string): Card[] {
     const tagsRaw = row['tags'] || row['Tags'] || fields[3] || '';
     if (!front.trim()) continue;
     cards.push({
-      id: `${deckId}-${i}-${Date.now()}`,
+      id: v4(),
       deckId,
       front: front.trim(),
       back: back.trim(),

@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { supabase } from './storage/supabaseClient';
 import { useDecks } from './hooks/useDecks';
 import DeckManager from './components/DeckManager';
 import StudySession from './components/StudySession';
 import Auth from './components/Auth';
+import Stats from './components/Stats';
+import { loadSetting, saveSetting } from './storage/settings';
 import type { User } from '@supabase/supabase-js';
 import './index.css';
 
@@ -31,31 +34,127 @@ export default function App() {
   return <AppContent user={user} />;
 }
 
+type AppView = 'decks' | 'stats' | 'pre-session' | 'study';
+
 function AppContent({ user }: { user: User }) {
   const {
-    decks, cards, states, loaded,
+    decks, cards, states, logs, loaded,
     createDeck, importCards, getDeckStats, logReview, deleteDeck,
   } = useDecks();
 
+  const [view, setView] = useState<AppView>('decks');
   const [studyingDeckId, setStudyingDeckId] = useState<string | null>(null);
+  const [sessionSize, setSessionSize] = useState<number>(10);
+  const [selectedSize, setSelectedSize] = useState<number>(10);
+  const [sessionSizeLoaded, setSessionSizeLoaded] = useState(false);
+
+  useEffect(() => {
+    loadSetting<number>('sessionSize', 10).then((v) => {
+      setSessionSize(v);
+      setSessionSizeLoaded(true);
+    });
+  }, []);
 
   async function handleSignOut() {
     await supabase.auth.signOut();
   }
 
-  if (!loaded) return <div className="loader">Loading…</div>;
+  function handleStudy(deckId: string) {
+    setStudyingDeckId(deckId);
+    setSelectedSize(sessionSize);
+    setView('pre-session');
+  }
 
-  if (studyingDeckId) {
+  async function startSession(size: number) {
+    const clamped = Math.max(1, size);
+    setSessionSize(clamped);
+    await saveSetting('sessionSize', clamped);
+    setView('study');
+  }
+
+  if (!loaded || !sessionSizeLoaded) return <div className="loader">Loading…</div>;
+
+  if (view === 'study' && studyingDeckId) {
     const deckCards = cards.filter((c) => c.deckId === studyingDeckId);
     return (
       <StudySession
         deckCards={deckCards}
         cardStates={states}
         deckId={studyingDeckId}
-        onLog={(log, nextState) => {
-          logReview(log, nextState);
-        }}
-        onBack={() => setStudyingDeckId(null)}
+        sessionSize={sessionSize}
+        onLog={(log, nextState) => logReview(log, nextState)}
+        onBack={() => { setStudyingDeckId(null); setView('decks'); }}
+      />
+    );
+  }
+
+  if (view === 'pre-session' && studyingDeckId) {
+    const deck = decks.find((d) => d.id === studyingDeckId);
+    const deckCardCount = cards.filter((c) => c.deckId === studyingDeckId).length;
+    const presets = [5, 10, 20];
+    return (
+      <div className="pre-session-wrap">
+        <div className="glass pre-session-card">
+          <h2>{deck?.name}</h2>
+          <p style={{ color: 'var(--text-dim)', marginBottom: '1.5rem' }}>
+            {deckCardCount} cards total
+          </p>
+          <p style={{ marginBottom: '1rem', fontWeight: 600 }}>How many cards?</p>
+          <div className="size-presets">
+            {presets.map((n) => (
+              <button
+                key={n}
+                className={`btn-size-preset${selectedSize === n ? ' active' : ''}`}
+                onClick={() => setSelectedSize(n)}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <div className="size-custom-row">
+            <input
+              type="number"
+              min={1}
+              max={9999}
+              placeholder="Custom…"
+              value={selectedSize === sessionSize ? '' : String(selectedSize)}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (v > 0) setSelectedSize(v);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') startSession(selectedSize);
+              }}
+              className="type-input"
+              style={{ width: 100 }}
+            />
+          </div>
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            className="btn-primary"
+            style={{ marginTop: '1.5rem', width: '100%', padding: '14px 0', fontSize: '16px' }}
+            onClick={() => startSession(selectedSize)}
+          >
+            Start Session ({selectedSize} cards)
+          </motion.button>
+          <button className="btn-ghost" style={{ marginTop: '0.75rem' }} onClick={() => { setStudyingDeckId(null); setView('decks'); }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'stats') {
+    return (
+      <Stats
+        decks={decks}
+        cards={cards}
+        states={states}
+        logs={logs}
+        getDeckStats={getDeckStats}
+        onBack={() => setView('decks')}
       />
     );
   }
@@ -85,7 +184,8 @@ function AppContent({ user }: { user: User }) {
         createDeck={createDeck}
         importCards={importCards}
         deleteDeck={deleteDeck}
-        onStudy={setStudyingDeckId}
+        onStudy={handleStudy}
+        onStats={() => setView('stats')}
       />
     </div>
   );

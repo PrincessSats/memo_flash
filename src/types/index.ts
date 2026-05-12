@@ -48,6 +48,7 @@ export interface StudySettings {
   dailyReviewLimit: number;
   showFurigana: boolean;
   nightMode: boolean;
+  sessionSize: number;
 }
 
 export type QuizType = 'meaning' | 'reading' | 'listening';

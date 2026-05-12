@@ -78,7 +78,7 @@ export async function saveCards(cards: Card[]) {
   }));
 
   const { error } = await supabase.from('cards').upsert(updates);
-  if (error) console.error('Error saving cards:', error);
+  if (error) throw new Error(error.message);
 }
 
 export async function addCards(newCards: Card[]) {
@@ -131,8 +131,8 @@ export async function saveStates(states: CardState[]) {
     suspended: s.suspended,
   }));
 
-  const { error } = await supabase.from('card_states').upsert(updates);
-  if (error) console.error('Error saving states:', error);
+  const { error } = await supabase.from('card_states').upsert(updates, { onConflict: 'card_id' });
+  if (error) throw new Error(error.message);
 }
 
 export async function updateState(state: CardState) {
@@ -150,7 +150,7 @@ export async function updateState(state: CardState) {
       due: new Date(state.due).toISOString(),
       last_review: state.lastReview ? new Date(state.lastReview).toISOString() : null,
       suspended: state.suspended,
-    });
+    }, { onConflict: 'card_id' });
   if (error) console.error('Error updating state:', error);
 }
 
@@ -231,6 +231,19 @@ export async function loadSetting<T>(key: string, fallback: T): Promise<T> {
   } catch {
     return data.value as unknown as T;
   }
+}
+
+export async function deleteDeckStorage(deckId: string) {
+  const userId = await getUserId();
+  if (!userId) throw new Error('Not authenticated');
+
+  const { error } = await supabase
+    .from('decks')
+    .delete()
+    .eq('id', deckId)
+    .eq('user_id', userId);
+
+  if (error) throw new Error(error.message);
 }
 
 export async function saveSetting<T>(key: string, value: T) {

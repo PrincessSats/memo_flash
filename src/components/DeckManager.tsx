@@ -1,20 +1,22 @@
 import { useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, Trash2, BookOpen, Clock, Flame } from 'lucide-react';
+import { Upload, Trash2, BookOpen, Clock, Flame, BarChart2 } from 'lucide-react';
 import type { Deck } from '../types';
+import { v4 } from '../utils/uuid';
 import { parseCSV } from '../parsers/csvParser';
 import { parseApkg } from '../parsers/apkgParser';
 
 interface Props {
   decks: Deck[];
-  getDeckStats: (deckId: string) => { dueCount: number; newLearned: number; reviews: number; correct: number; streak: number };
+  getDeckStats: (deckId: string) => { dueCount: number; cardCount: number; newLearned: number; reviews: number; correct: number; streak: number };
   createDeck: (name: string, description?: string) => Promise<Deck>;
   importCards: (deckId: string, newCards: any[]) => void;
   deleteDeck: (deckId: string) => void;
   onStudy: (deckId: string) => void;
+  onStats: () => void;
 }
 
-export default function DeckManager({ decks, getDeckStats, createDeck, importCards, deleteDeck, onStudy }: Props) {
+export default function DeckManager({ decks, getDeckStats, createDeck, importCards, deleteDeck, onStudy, onStats }: Props) {
   const [newName, setNewName] = useState('');
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -35,11 +37,11 @@ export default function DeckManager({ decks, getDeckStats, createDeck, importCar
       if (file.name.endsWith('.csv')) {
         const text = await file.text();
         const cards = parseCSV(text, deck.id);
-        importCards(deck.id, cards);
+        await importCards(deck.id, cards);
       } else if (file.name.endsWith('.apkg')) {
         const parsed = await parseApkg(file);
-        const cards = parsed.cards.map((c, i) => ({ ...c, id: `${deck.id}-apkg-${i}-${Date.now()}`, deckId: deck.id }));
-        importCards(deck.id, cards);
+        const cards = parsed.cards.map((c) => ({ ...c, id: v4(), deckId: deck.id }));
+        await importCards(deck.id, cards);
       }
     } catch (e) {
       alert('Import failed: ' + (e as Error).message);
@@ -63,7 +65,12 @@ export default function DeckManager({ decks, getDeckStats, createDeck, importCar
       />
 
       <div className="deck-header">
-        <h1>Memo</h1>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h1>Memo</h1>
+          <button className="btn-ghost" onClick={onStats} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <BarChart2 size={16} /> Stats
+          </button>
+        </div>
         <p className="deck-sub">Spaced repetition, made alive.</p>
       </div>
 
@@ -117,7 +124,7 @@ export default function DeckManager({ decks, getDeckStats, createDeck, importCar
                 </div>
                 <div className="stat">
                   <BookOpen size={14} />
-                  <span>{deck.cardCount} cards</span>
+                  <span>{stats.cardCount} cards</span>
                 </div>
                 <div className="stat">
                   <Flame size={14} />
@@ -130,7 +137,7 @@ export default function DeckManager({ decks, getDeckStats, createDeck, importCar
                 whileTap={{ scale: 0.98 }}
                 className="btn-study"
                 onClick={() => onStudy(deck.id)}
-                disabled={stats.dueCount === 0}
+                disabled={stats.cardCount === 0}
               >
                 Study Now
               </motion.button>
